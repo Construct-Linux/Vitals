@@ -825,7 +825,7 @@ export const Sensors = GObject.registerClass({
     }
 
     _returnValue(callback, label, value, type, format) {
-        if (value != 'disabled' && format !== 'string' && isNaN(value))
+        if (value != 'disabled' && value != 'destroy' && format !== 'string' && isNaN(value))
             return;
         callback(label, value, type, format);
     }
