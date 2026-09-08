@@ -138,9 +138,10 @@ export const Sensors = GObject.registerClass({
             this._hardware_detected = true;
             this._discoverHardwareMonitors(callback);
         } else if (this._static_info_refresh) {
-            // menu redraw cleared rows but kept discovery; re-emit static CPU/kernel only
+            // menu redraw / Refresh: re-emit static CPU/kernel and rediscover NICs
             this._static_info_refresh = false;
             this._queryStaticInfo(callback);
+            this._discoverNetworkIfaces(callback);
         }
 
         for (let sensor in this._sensorIcons) {
@@ -924,6 +925,7 @@ export const Sensors = GObject.registerClass({
     }
 
     _discoverNetworkIfaces(callback) {
+        let previous = this._networkIfaces;
         this._networkIfaces = [];
         this._hasWireless = false;
         let netbase = '/sys/class/net/';
@@ -948,6 +950,12 @@ export const Sensors = GObject.registerClass({
                         this._returnValue(callback, name, value, type, 'storage');
                     }).catch(err => { });
                 }
+            }
+
+            // issue #557 - drop ifaces that disappeared since last discovery
+            for (let sensor of previous) {
+                if (!interfaces.includes(sensor.name.split(' ')[0]))
+                    this._returnValue(callback, sensor.name, 'destroy', sensor.type, 'storage');
             }
 
             new FileModule.File('/proc/net/wireless').read("\n", true).then(lines => {
