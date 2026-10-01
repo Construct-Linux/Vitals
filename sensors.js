@@ -932,30 +932,39 @@ export const Sensors = GObject.registerClass({
 
     _discoverNetworkIfaces(callback) {
         let previous = this._networkIfaces;
-        this._networkIfaces = [];
+        // a rediscovery still in flight keeps filling its own, discarded list
+        let ifaces = this._networkIfaces = [];
         this._hasWireless = false;
         let netbase = '/sys/class/net/';
         let directions = ['tx', 'rx'];
 
         new FileModule.File(netbase).list().then(interfaces => {
             for (let iface of interfaces) {
-                for (let direction of directions) {
-                    // lo tx and rx are the same
-                    if (iface == 'lo' && direction == 'rx')
-                        continue;
+                new FileModule.File(netbase + iface).list().then(entries => {
+                    // issue #319 - bridges, veths, tun and VPN devices carry traffic that a
+                    // physical interface (one with a device link) counts again, so leave
+                    // them out of the rows and the Device/Boot/Session totals
+                    if (iface != 'lo' && !entries.includes('device'))
+                        return;
 
-                    // issue #217 - don't include 'lo' traffic in Maximum calculations in values.js
-                    // by not using network-rx or network-tx
-                    let name = iface + ((iface == 'lo') ? '' : ' ' + direction);
-                    let type = 'network' + ((iface == 'lo') ? '' : '-' + direction);
-                    let path = netbase + iface + '/statistics/' + direction + '_bytes';
-                    this._networkIfaces.push({name, type, path});
+                    for (let direction of directions) {
+                        // lo tx and rx are the same
+                        if (iface == 'lo' && direction == 'rx')
+                            continue;
 
-                    // update screen on initial build to prevent delay on update
-                    new FileModule.File(path).read().then(value => {
-                        this._returnValue(callback, name, value, type, 'storage');
-                    }).catch(err => { });
-                }
+                        // issue #217 - don't include 'lo' traffic in Maximum calculations in values.js
+                        // by not using network-rx or network-tx
+                        let name = iface + ((iface == 'lo') ? '' : ' ' + direction);
+                        let type = 'network' + ((iface == 'lo') ? '' : '-' + direction);
+                        let path = netbase + iface + '/statistics/' + direction + '_bytes';
+                        ifaces.push({name, type, path});
+
+                        // update screen on initial build to prevent delay on update
+                        new FileModule.File(path).read().then(value => {
+                            this._returnValue(callback, name, value, type, 'storage');
+                        }).catch(err => { });
+                    }
+                }).catch(err => { });
             }
 
             // issue #557 - drop ifaces that disappeared since last discovery
