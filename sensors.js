@@ -832,6 +832,11 @@ export const Sensors = GObject.registerClass({
     }
 
     _returnValue(callback, label, value, type, format) {
+        // issue #542 - file reads cannot be cancelled, so ones still in flight when the
+        // extension is disabled (every screen lock) resolve after the menu is disposed
+        if (this._destroyed)
+            return;
+
         if (value != 'disabled' && value != 'destroy' && format !== 'string' && isNaN(value))
             return;
         callback(label, value, type, format);
@@ -1206,6 +1211,7 @@ export const Sensors = GObject.registerClass({
     }
 
     destroy() {
+        this._destroyed = true;
         this._destroyFrameMonitor();
         this._terminateNvidiaSmiProcess();
 
