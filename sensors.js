@@ -334,7 +334,13 @@ export const Sensors = GObject.registerClass({
         for (let sensor of this._networkIfaces) {
             new FileModule.File(sensor.path).read().then(value => {
                 this._returnValue(callback, sensor.name, value, sensor.type, 'storage');
-            }).catch(err => { });
+            }).catch(err => {
+                // issue #557 - the interface went away (docker veth, VPN tun); rediscover
+                // now, or its last speed stays in the Device total until a Refresh.
+                // Rediscovery replaces the list, so the other failed reads skip this
+                if (this._networkIfaces.includes(sensor))
+                    this._discoverNetworkIfaces(callback);
+            });
         }
 
         if (this._hasWireless)
