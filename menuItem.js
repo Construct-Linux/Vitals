@@ -34,8 +34,6 @@ export const MenuItem = GObject.registerClass({
         this._valueLabel.set_x_expand(true);
         this._valueLabel.set_y_expand(true);
         this.add_child(this._valueLabel);
-
-        this.actor._delegate = this;
     }
 
     get checked() {
