@@ -173,6 +173,10 @@ var VitalsMenuButton = GObject.registerClass({
                 // make sure timer fires at next full interval
                 this._initializeTimer();
 
+                // rows were not updated while closed: forget what they were
+                // last sent so this query reaches every one of them
+                this._values.resetHistory(this._numGpus);
+
                 // refresh sensors now
                 this._querySensors();
             }
@@ -391,6 +395,10 @@ var VitalsMenuButton = GObject.registerClass({
                 }
             }
         }
+
+        // rows nobody can see wait for the menu to open, which re-emits every value
+        if (!this.menu.isOpen)
+            return;
 
         // have we added this sensor before?
         let item = this._sensorMenuItems[key];
