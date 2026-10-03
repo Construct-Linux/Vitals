@@ -25,9 +25,7 @@
 */
 
 import GLib from 'gi://GLib';
-import Gio from 'gi://Gio';
 import GObject from 'gi://GObject';
-import * as SubProcessModule from './helpers/subprocess.js';
 import * as FileModule from './helpers/file.js';
 
 let GTop, hasGTop = true;
@@ -50,17 +48,8 @@ export const Sensors = GObject.registerClass({
 
         this._last_processor = { 'core': {}, 'speed': [] };
 
-        this._settingChangedSignals = [];
-        this._addSettingChangedSignal('show-gpu', this._reconfigureNvidiaSmiProcess.bind(this));
-        this._addSettingChangedSignal('update-time', this._reconfigureNvidiaSmiProcess.bind(this));
-        //this._addSettingChangedSignal('include-static-gpu-info', this._reconfigureNvidiaSmiProcess.bind(this));
-
-        this._gpu_drm_vendors = null;
-        this._gpu_drm_indices = null;
-        this._nvidia_smi_process = null;
-        this._nvidia_gpu_count = 1;
-        this._nvidia_labels = [];
-        this._bad_split_count = 0;
+        this._gpu_drm_vendors = [];
+        this._gpu_drm_indices = [];
 
         this._frameMonitorSignalId = 0;
         this._frameMonitorLastTime = 0;
@@ -76,10 +65,6 @@ export const Sensors = GObject.registerClass({
             this._lastRead = 0;
             this._lastWrite = 0;
         }
-    }
-
-    _addSettingChangedSignal(key, callback) {
-        this._settingChangedSignals.push(this._settings.connect('changed::' + key, callback));
     }
 
     _findStorageDevice() {
@@ -558,8 +543,7 @@ export const Sensors = GObject.registerClass({
     }
 
     _returnGpuGroupHeader(callback, typeName, utilization) {
-        if (utilization !== null && utilization !== undefined &&
-            utilization !== 'N/A' && utilization !== '[N/A]' && !isNaN(utilization)) {
+        if (utilization !== null && !isNaN(utilization)) {
             this._returnGpuValue(callback, 'Graphics', utilization, typeName + '-group', 'percent');
             return;
         }
@@ -572,144 +556,14 @@ export const Sensors = GObject.registerClass({
         if (this._frameMonitorCurrentHz > 0)
             this._returnValue(callback, 'Refresh Rate', this._frameMonitorCurrentHz, 'gpu#1', 'hertz');
 
-        if (!this._nvidia_smi_process) {
-            // no nvidia-smi, so we use sysfs DRM if any cards was discovered
-            if (!this._gpu_drm_indices?.length) {
-                this._returnGpuGroupHeader(callback, 'gpu#1', null);
-                this._disableGpuLabels(callback);
-                return;
-            }
-
-            this._readGpuDrm(callback);
-            return;
-        }
-
-        this._nvidia_smi_process.read('\n').then(lines => {
-            const expectedSplitLength = 19;
-            let valid = lines.filter(line => line.trim() &&
-                line.split(',').length >= expectedSplitLength);
-
-            if (valid.length > 0) {
-                // stdout can hold multiple snapshots; keep only the latest row per GPU
-                let count = this._nvidia_gpu_count || 1;
-                let batch = valid.slice(-count);
-                for (let i = 0; i < batch.length; i++)
-                    this._parseNvidiaSmiLine(callback, batch[i], i + 1, batch.length > 1);
-            } else {
-                this._returnGpuGroupHeader(callback, 'gpu#1', null);
-            }
-
-            // if we've already updated the static info during the last parse, then stop doing so.
-            // this is so the _parseNvidiaSmiLine function won't return static info anymore
-            // and the nvidia-smi commmand won't be queried for static info either
-            if(!this._nvidia_static_returned) {
-                this._nvidia_static_returned = true;
-                //reconfigure the process to stop querying static info
-                this._reconfigureNvidiaSmiProcess();
-            }
-        }).catch(err => {
+        // sysfs DRM, if any card was discovered
+        if (!this._gpu_drm_indices.length) {
+            this._returnGpuGroupHeader(callback, 'gpu#1', null);
             this._disableGpuLabels(callback);
-            this._terminateNvidiaSmiProcess();
-        });
-    }
-
-    _parseNvidiaSmiLine(callback, csv, gpuNum, multiGpu) {
-        const expectedSplitLength = 19;
-        let csv_split = csv.split(',');
-
-        // occasionally the nvidia-smi command can get cut off before it can be fully read, thus the parse function only gets part of a line
-        // hence we count the number of bad splits and only terminate the process after a few bad splits in a row
-        // this prevents anomalous readings from terminating the process
-        if (csv_split.length < expectedSplitLength) {
-            this._bad_split_count++;
-            //if we've had 2 bad splits/reads in a row, try to restart the process
-            if (this._bad_split_count == 2) this._reconfigureNvidiaSmiProcess();
-            //if we still get a bad read after that, then it's not an anomaly; terminate the process
-            else if (this._bad_split_count >= 3) this._terminateNvidiaSmiProcess();
             return;
         }
-        this._bad_split_count = 0;
 
-        let [
-            label,
-            fan_speed_pct,
-            temp_gpu, temp_mem,
-            mem_total, mem_used, mem_reserved, mem_free,
-            util_gpu, util_mem, util_encoder, util_decoder,
-            clock_gpu, clock_mem, clock_encode_decode,
-            power, power_avg,
-            link_gen_current, link_width_current
-        ] = csv_split;
-
-        const staticNames = [
-            'temp_limit', 'power_limit',
-            'link_gen_max', 'link_width_max',
-            'addressing_mode',
-            'driver_version', 'vbios', 'serial',
-            'domain_num', 'bus_num', 'device_num', 'device_id', 'sub_device_id'
-        ];
-        let staticInfo = {};
-
-        // if we have queried static info this time around, populate our static info object
-        if(csv_split.length == (expectedSplitLength + staticNames.length)){
-            for(let i = 0; i < staticNames.length; i++) {
-                //set the static info to a default (0) if it's undefined
-                const value = csv_split[expectedSplitLength + i];
-                staticInfo[staticNames[i]] = (typeof value !== "undefined") ? value : 0;
-            }
-        }
-
-        const typeName = 'gpu#' + gpuNum;
-        const globalLabel = 'GPU' + (multiGpu ? ' ' + gpuNum : '');
-        const memTempValid = !isNaN(parseInt(temp_mem));
-        let util = parseInt(util_gpu) * 0.01;
-
-        this._returnGpuGroupHeader(callback, typeName, isNaN(util) ? null : util);
-        if (this._settings.get_boolean('include-static-gpu-info'))
-            this._returnGpuValue(callback, 'Vendor', label.trim(), typeName, 'string');
-
-        this._returnGpuValue(callback, 'Fan', parseInt(fan_speed_pct) * 0.01, typeName, 'percent');
-
-        this._returnGpuValue(callback, globalLabel, parseInt(temp_gpu) * 1000, 'temperature', 'temp');
-        this._returnGpuValue(callback, 'Temperature', parseInt(temp_gpu) * 1000, typeName, 'temp');
-        this._returnGpuValue(callback, 'Memory Temperature', parseInt(temp_mem) * 1000, typeName, 'temp', memTempValid);
-        this._returnStaticGpuValue(callback, 'Temperature Limit', parseInt(staticInfo['temp_limit']) * 1000, typeName, 'temp');
-
-        this._returnGpuValue(callback, 'Memory Usage', parseInt(mem_used) / parseInt(mem_total), typeName, 'percent');
-        this._returnGpuValue(callback, 'Memory Total', parseInt(mem_total) * 1000, typeName, 'memory');
-        this._returnGpuValue(callback, 'Memory Used', parseInt(mem_used) * 1000, typeName, 'memory');
-        this._returnGpuValue(callback, 'Memory Reserved', parseInt(mem_reserved) * 1000, typeName, 'memory');
-        this._returnGpuValue(callback, 'Memory Free', parseInt(mem_free) * 1000, typeName, 'memory');
-
-        this._returnGpuValue(callback, 'Memory Utilization', parseInt(util_mem) * 0.01, typeName, 'percent');
-        this._returnGpuValue(callback, 'Utilization', parseInt(util_gpu) * 0.01, typeName, 'percent');
-        this._returnGpuValue(callback, 'Encoder Utilization', parseInt(util_encoder) * 0.01, typeName, 'percent');
-        this._returnGpuValue(callback, 'Decoder Utilization', parseInt(util_decoder) * 0.01, typeName, 'percent');
-
-        this._returnGpuValue(callback, 'Frequency', parseInt(clock_gpu) * 1000 * 1000, typeName, 'hertz');
-        this._returnGpuValue(callback, 'Memory Frequency', parseInt(clock_mem) * 1000 * 1000, typeName, 'hertz');
-        this._returnGpuValue(callback, 'Encoder/Decoder Frequency', parseInt(clock_encode_decode) * 1000 * 1000, typeName, 'hertz');
-
-        //this._returnGpuValue(callback, 'Encoder Sessions', parseInt(encoder_sessions), typeName, 'string');
-
-        this._returnGpuValue(callback, 'Power', power, typeName, 'watt-gpu');
-        this._returnGpuValue(callback, 'Average Power', power_avg, typeName, 'watt-gpu');
-        this._returnStaticGpuValue(callback, 'Power Limit', parseInt(staticInfo['power_limit']), typeName, 'watt-gpu');
-
-        this._returnGpuValue(callback, 'Link Speed', link_gen_current + 'x' + link_width_current, typeName, 'pcie');
-        this._returnStaticGpuValue(callback, 'Maximum Link Speed', staticInfo['link_gen_max'] + 'x' + staticInfo['link_width_max'], typeName, 'pcie');
-
-        this._returnStaticGpuValue(callback, 'Addressing Mode', staticInfo['addressing_mode'], typeName, 'string');
-
-        this._returnStaticGpuValue(callback, 'Driver Version', staticInfo['driver_version'], typeName, 'string');
-        this._returnStaticGpuValue(callback, 'vBIOS Version', staticInfo['vbios'], typeName, 'string');
-        this._returnStaticGpuValue(callback, 'Serial Number', staticInfo['serial'], typeName, 'string');
-
-        this._returnStaticGpuValue(callback, 'Domain Number', staticInfo['domain_num'], typeName, 'string');
-        this._returnStaticGpuValue(callback, 'Bus Number', staticInfo['bus_num'], typeName, 'string');
-        this._returnStaticGpuValue(callback, 'Device Number', staticInfo['device_num'], typeName, 'string');
-        this._returnStaticGpuValue(callback, 'Device ID', staticInfo['device_id'], typeName, 'string');
-        this._returnStaticGpuValue(callback, 'Sub Device ID', staticInfo['sub_device_id'], typeName, 'string');
+        this._readGpuDrm(callback);
     }
 
     _readGpuDrm(callback) {
@@ -755,30 +609,19 @@ export const Sensors = GObject.registerClass({
     }
 
     _disableGpuLabels(callback) {
-        for (let labelObj of this._nvidia_labels) {
+        for (let labelObj of this._gpuLabels.values()) {
             if (labelObj.type.includes('-group'))
                 continue;
             this._returnValue(callback, labelObj.label, 'disabled', labelObj.type, labelObj.format);
         }
     }
 
-    _returnStaticGpuValue(callback, label, value, type, format) {
-        //if we've already tried to return existing static info before or if the option isn't enabled, then do nothing.
-        if (this._nvidia_static_returned || !this._settings.get_boolean('include-static-gpu-info'))
-            return;
-
-        //we don't need to disable static info labels, so just use ordinary returnValue function
-        this._returnValue(callback, label, value, type, format);
-    }
-
-    _returnGpuValue(callback, label, value, type, format, display = true) {
-        if(!display) return;
-
+    _returnGpuValue(callback, label, value, type, format) {
         if (format !== 'string' && isNaN(value))
             return;
 
-        if (!this._nvidia_labels[label + type])
-            this._nvidia_labels.push(this._nvidia_labels[label + type] = {label, type, format});
+        if (!this._gpuLabels.has(label + type))
+            this._gpuLabels.set(label + type, {label, type, format});
 
         this._returnValue(callback, label, value, type, format);
     }
@@ -841,8 +684,6 @@ export const Sensors = GObject.registerClass({
         // is static CPU information enabled?
         this._queryStaticInfo(callback);
 
-        // Launch nvidia-smi subprocess if nvidia querying is enabled
-        this._reconfigureNvidiaSmiProcess();
         this._discoverGpuDrm();
         this._discoverNetworkIfaces(callback);
         this._initFrameMonitor();
@@ -941,103 +782,16 @@ export const Sensors = GObject.registerClass({
     }
 
     _discoverGpuDrm() {
-        // use DRM only if nvidia-smi is not used
-        if (this._settings.get_boolean('show-gpu') && this._nvidia_smi_process == null) {
-            this._gpu_drm_indices = [];
-            this._gpu_drm_vendors = [];
-            // try to discover up to 10 cards starting from index 0
-            for(let i = 0; i < 10 ; i++){
-                new FileModule.File('/sys/class/drm/card'+i+'/device/vendor').read().then(value => {
-                    this._gpu_drm_indices.push(i);
-                    this._gpu_drm_vendors.push(value);
-                }).catch(err => { });
-            }
-        } else {
-            this._gpu_drm_vendors = null;
-            this._gpu_drm_indices = null;
-        }
-    }
-
-    // The nvidia-smi subprocess will keep running and print new sensor data to stdout every
-    // `update_time` seconds. _queryNvidiaSmi() will be called at roughly the same interval and
-    // read from the subprocess's stdout to get new sensor data.
-
-    // Regarding "keeping main process & sub process in sync", there are two possible scenarios:
-    // - For some reason, nvidia-smi prints at a somewhat higher frequency than we call
-    //   _queryNvidiaSmi() to read data. This is okay, eventually one call to _queryNvidiaSmi()
-    //   will read two sensor data updates in a single call.
-    // - For some reason, _queryNvidiaSmi() is called at a somewhat higher frequency than
-    //   nvidia-smi prints data. This is the more likely scenario with user actions triggering
-    //   additional reads. This eventually triggers an "IO PENDING" error while attempting to
-    //   read, because the previous async read is still waiting. To solve this, the subprocess
-    //   module simply ignores PENDING errors. After ignoring the error, the earlier read will
-    //   eventually return and sensor data will be updated, so this scenario is handled correctly.
-
-    // Generally speaking, the call to _queryNvidiaSmi() and nvidia-smi's printing to stdout do
-    // not happen at the same time. So the async call in _queryNvidiaSmi() will usually have to
-    // wait up to `update_time` seconds before getting any results and reporting them through the
-    // callback.
-    _reconfigureNvidiaSmiProcess() {
-        if (this._settings.get_boolean('show-gpu')) {
-            this._terminateNvidiaSmiProcess();
-
-            try {
-                let update_time = this._settings.get_int('update-time');
-                let query_interval = Math.max(update_time, 1);
-                let command = [
-                    'nvidia-smi',
-                    '--query-gpu=name,' +
-                    'fan.speed,' +
-                    'temperature.gpu,temperature.memory,' +
-                    'memory.total,memory.used,memory.reserved,memory.free,' +
-                    'utilization.gpu,utilization.memory,utilization.encoder,utilization.decoder,' +
-                    'clocks.gr,clocks.mem,clocks.video,' +
-                    'power.draw.instant,power.draw.average,' +
-                    'pcie.link.gen.gpucurrent,pcie.link.width.current,' +
-                    (!this._nvidia_static_returned && this._settings.get_boolean('include-static-gpu-info') ?
-                        'temperature.gpu.tlimit,' +
-                        'power.limit,' +
-                        'pcie.link.gen.max,pcie.link.width.max,'   +
-                        'addressing_mode,'+
-                        'driver_version,vbios_version,serial,' +
-                        'pci.domain,pci.bus,pci.device,pci.device_id,pci.sub_device_id,'
-                    : ''),
-                    '--format=csv,noheader,nounits',
-                    '-l', query_interval.toString()
-                ];
-
-                this._nvidia_smi_process = new SubProcessModule.SubProcess(command);
-                this._detectNvidiaGpuCount();
-            } catch(e) {
-                // proprietary nvidia driver not installed
-                this._terminateNvidiaSmiProcess();
-            }
-        } else {
-            this._terminateNvidiaSmiProcess();
-        }
-    }
-
-    _detectNvidiaGpuCount() {
-        this._nvidia_gpu_count = 1;
-        try {
-            let proc = Gio.Subprocess.new(
-                ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader,nounits'],
-                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE);
-            proc.communicate_utf8_async(null, null, (subprocess, res) => {
-                try {
-                    let [, stdout] = subprocess.communicate_utf8_finish(res);
-                    let count = stdout.trim().split('\n').filter(line => line.trim()).length;
-                    if (count > 0)
-                        this._nvidia_gpu_count = count;
-                } catch (e) { }
-            });
-        } catch (e) { }
-    }
-
-    _terminateNvidiaSmiProcess() {
-        if (this._nvidia_smi_process) {
-            this._nvidia_smi_process.terminate();
-            this._nvidia_smi_process = null;
+        // discovered even with the GPU group hidden, so showing it later
+        // finds the cards without a hardware rediscovery
+        this._gpu_drm_indices = [];
+        this._gpu_drm_vendors = [];
+        // try to discover up to 10 cards starting from index 0
+        for (let i = 0; i < 10; i++) {
+            new FileModule.File('/sys/class/drm/card' + i + '/device/vendor').read().then(value => {
+                this._gpu_drm_indices.push(i);
+                this._gpu_drm_vendors.push(value);
+            }).catch(err => { });
         }
     }
 
@@ -1146,27 +900,17 @@ export const Sensors = GObject.registerClass({
         } else {
             this._static_info_refresh = true;
         }
-        this._nvidia_static_returned = false;
         this._processor_uses_cpu_info = true;
         this._battery_time_left_history = [];
         this._battery_charge_status = '';
-        this._nvidia_labels = [];
-        this._bad_split_count = 0;
+        this._gpuLabels = new Map();
         this._frameMonitorLastTime = 0;
         this._frameMonitorFrameCount = 0;
         this._frameMonitorAccTime = 0;
-
-        // soft reset must restart nvidia-smi so static GPU fields are queried again
-        if (!rediscover)
-            this._reconfigureNvidiaSmiProcess();
     }
 
     destroy() {
         this._destroyed = true;
         this._destroyFrameMonitor();
-        this._terminateNvidiaSmiProcess();
-
-        for (let signal of Object.values(this._settingChangedSignals))
-            this._settings.disconnect(signal);
     }
 });

@@ -40,8 +40,6 @@ var VitalsMenuButton = GObject.registerClass({
         this._groups = {};
         this._widths = {};
         this._numGpus = 1;
-        this._newGpuDetected = false;
-        this._newGpuDetectedCount = 0;
         this._last_query = new Date().getTime();
 
         this._sensors = new Sensors.Sensors(this._settings, this._sensorIcons, _);
@@ -585,22 +583,12 @@ var VitalsMenuButton = GObject.registerClass({
             // add/initialize any gpu groups that we haven't added yet
             if (typeKey.startsWith('gpu') && typeKey !== 'gpu#1') {
                 const split = typeKey.split('#');
-                if(split.length == 2 && this._numGpus < parseInt(split[1])) {
-                    // occasionally two lines from nvidia-smi will be read at once
-                    // so we only actually update the number of gpus if we have recieved multiple lines at least 3 times in a row
-                    // i.e. we make sure that mutiple queries have detected a new gpu back-to-back
-                    if(this._newGpuDetectedCount < 2) {
-                        this._newGpuDetected = true;
-                        return;
-                    }
-
+                if (split.length == 2 && this._numGpus < parseInt(split[1])) {
                     this._numGpus = parseInt(split[1]);
-                    this._newGpuDetectedCount = 0;
-                    this._newGpuDetected = false;
                     // change label for gpu 1 from "Graphics" to "Graphics 1" since we have multiple gpus now
                     this._groups['gpu#1'].label.text = this._ucFirst('gpu#1') + ' 1';
-                    for(let i = 2; i <= this._numGpus; i++)
-                        if(!('gpu#' + i in this._groups))
+                    for (let i = 2; i <= this._numGpus; i++)
+                        if (!('gpu#' + i in this._groups))
                             this._initializeMenuGroup('gpu#' + i, 'gpu', ' ' + i, Object.keys(this._groups).length);
                 }
             }
@@ -610,11 +598,6 @@ var VitalsMenuButton = GObject.registerClass({
                 this._updateDisplay(_(item.label), item.value, item.type, item.key, item.style);
             }
         }, dwell, wantedKeys);
-
-        //if a new gpu has been detected during the last query, then increment the amount of times we've detected a new gpu
-        if(this._newGpuDetected) this._newGpuDetectedCount++;
-        else this._newGpuDetectedCount = 0;
-        this._newGpuDetected = false;
     }
 
     destroy() {

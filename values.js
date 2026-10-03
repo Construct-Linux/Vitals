@@ -207,10 +207,6 @@ export const Values = GObject.registerClass({
                 value = value / 1000000;
                 ending = 'W';
                 break;
-            case 'watt-gpu':
-                format = (use_higher_precision)?'%.2f %s':'%.1f %s';
-                ending = 'W';
-                break;
             case 'watt-hour':
                 format = (use_higher_precision)?'%.2f %s':'%.1f %s';
                 value = value / 1000000;
@@ -219,11 +215,6 @@ export const Values = GObject.registerClass({
             case 'load':
                 format = (use_higher_precision)?'%.2f %s':'%.1f %s';
                 value = parseFloat(value);
-                break;
-            case 'pcie':
-                let split = value.split('x');
-                value = 'PCIe ' + parseInt(split[0]) + (split.length > 1 ? ' x' + parseInt(split[1]) : '');
-                format = '%s';
                 break;
             default:
                 format = '%s';

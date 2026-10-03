@@ -139,7 +139,7 @@
     <key type="b" name="show-gpu">
       <default>false</default>
       <summary>Monitor GPU</summary>
-      <description>Display GPU information (requires the nvidia-smi tool)</description>
+      <description>Display GPU information from the kernel DRM interface</description>
     </key>
     <key type="b" name="include-static-gpu-info">
       <default>false</default>
