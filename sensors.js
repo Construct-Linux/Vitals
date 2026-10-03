@@ -814,9 +814,6 @@ export const Sensors = GObject.registerClass({
         // prepend module that provided sensor data
         if (name != label) label = name + ' ' + label;
 
-        //if (label == 'nvme Composite') label = 'NVMe';
-        //if (label == 'nouveau') label = 'Nvidia';
-
         label = label + extra;
 
         // in the future we will read /etc/sensors3.conf
