@@ -499,7 +499,9 @@ export const Sensors = GObject.registerClass({
 
         let primary = global.display.get_monitor_geometry(monitor);
         for (let view of global.stage.peek_stage_views()) {
-            let layout = view.get_layout();
+            // get_layout() takes an unannotated MtkRectangle*, an in-argument
+            // to GI (clutter-stage-view.h:53); the layout property is readable
+            let layout = view.layout;
             if (layout.x === primary.x && layout.y === primary.y)
                 return view.get_refresh_rate();
         }
