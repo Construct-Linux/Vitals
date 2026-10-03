@@ -36,6 +36,8 @@ try {
     hasGTop = false;
 };
 
+const FREQUENCY_KEYS = ['_processor_frequency_', '_processor_max_frequency_', '_processor_min_frequency_'];
+
 export const Sensors = GObject.registerClass({
     GTypeName: 'Sensors',
 }, class Sensors extends GObject.Object {
@@ -46,7 +48,7 @@ export const Sensors = GObject.registerClass({
 
         this.resetHistory();
 
-        this._last_processor = { 'core': {}, 'speed': [], 'time': 0 };
+        this._last_processor = { 'core': {}, 'time': 0 };
 
         this._gpu_drm_vendors = [];
         this._gpu_drm_indices = [];
@@ -93,7 +95,7 @@ export const Sensors = GObject.registerClass({
             if (!this._settings.get_boolean('show-' + sensor)) {
                 if (sensor === 'processor' && wantedKeys &&
                     wantedKeys.has('_processor_process_time_'))
-                    this._queryProcessor(callback);
+                    this._queryProcessor(callback, wantedKeys);
                 continue;
             }
 
@@ -106,7 +108,7 @@ export const Sensors = GObject.registerClass({
                 this._queryTempVoltFan(callback, sensor, wantedKeys);
             } else {
                 let method = '_query' + sensor[0].toUpperCase() + sensor.slice(1);
-                this[method](callback);
+                this[method](callback, wantedKeys);
             }
         }
     }
@@ -172,7 +174,7 @@ export const Sensors = GObject.registerClass({
         }).catch(err => { });
     }
 
-    _queryProcessor(callback) {
+    _queryProcessor(callback, wantedKeys) {
         // check processor usage
         new FileModule.File('/proc/stat').read("\n").then(lines => {
             // rates divide by the time since this file was last read, not since
@@ -217,40 +219,26 @@ export const Sensors = GObject.registerClass({
                 this._last_processor['core'][cpu] = total;
             }
 
-            // fallback: platforms without cpu MHz in /proc/cpuinfo (some ARM)
-            if (!this._processor_uses_cpu_info) {
-                for (let core = 0; core < cores; core++) {
-                    new FileModule.File('/sys/devices/system/cpu/cpu' + core + '/cpufreq/scaling_cur_freq').read().then(value => {
-                        this._last_processor['speed'][core] = parseInt(value);
-                    }).catch(err => { });
-                }
-            }
+            // /proc/cpuinfo formats every flag of every core to give the same
+            // value; read the per-core cpufreq files, and only when shown
+            if (!wantedKeys || FREQUENCY_KEYS.some(k => wantedKeys.has(k)))
+                this._queryFrequencies(callback, Object.keys(statistics).filter(cpu => cpu != 'cpu'));
         }).catch(err => { });
-
-        // /proc/cpuinfo lists every core in one file; same values as per-core scaling_cur_freq
-        if (this._processor_uses_cpu_info) {
-            new FileModule.File('/proc/cpuinfo').read("\n").then(lines => {
-                let freqs = [];
-                for (let line of lines) {
-                    // grab megahertz
-                    let value = line.match(/^cpu MHz(\s+): ([+-]?\d+(\.\d+)?)/);
-                    if (value) freqs.push(parseFloat(value[2]));
-                }
-
-                if (!freqs.length) {
-                    this._processor_uses_cpu_info = false;
-                    return;
-                }
-                this._returnFrequencies(callback, freqs, 1000 * 1000);
-            }).catch(err => {
-                this._processor_uses_cpu_info = false;
-            });
-        } else if (Object.values(this._last_processor['speed']).length > 0) {
-            this._returnFrequencies(callback, Object.values(this._last_processor['speed']), 1000);
-        }
     }
 
-    _returnFrequencies(callback, freqs, scale) {
+    _queryFrequencies(callback, cpus) {
+        Promise.allSettled(cpus.map(cpu =>
+            new FileModule.File('/sys/devices/system/cpu/' + cpu + '/cpufreq/scaling_cur_freq').read()
+        )).then(results => {
+            let freqs = results.filter(r => r.status === 'fulfilled').map(r => parseInt(r.value));
+            if (freqs.length)
+                this._returnFrequencies(callback, freqs);
+        });
+    }
+
+    // freqs in kHz, as cpufreq reports them
+    _returnFrequencies(callback, freqs) {
+        let scale = 1000;
         let sum = 0, min = freqs[0], max = freqs[0];
         for (let v of freqs) { sum += v; if (v < min) min = v; if (v > max) max = v; }
         this._returnValue(callback, 'Frequency', (sum / freqs.length) * scale, 'processor', 'hertz');
@@ -873,7 +861,6 @@ export const Sensors = GObject.registerClass({
         } else {
             this._static_info_refresh = true;
         }
-        this._processor_uses_cpu_info = true;
         this._battery_time_left_history = [];
         this._battery_charge_status = '';
         this._gpuLabels = new Map();
