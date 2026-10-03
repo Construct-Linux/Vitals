@@ -16,6 +16,7 @@ import {Extension, gettext as _} from 'resource:///org/gnome/shell/extensions/ex
 import * as Values from './values.js';
 import * as MenuItem from './menuItem.js';
 import * as SensorCatalog from './helpers/catalog.js';
+import {SettingsCache} from './helpers/settingsCache.js';
 
 let vitalsMenu;
 
@@ -41,8 +42,10 @@ var VitalsMenuButton = GObject.registerClass({
         this._widths = {};
         this._numGpus = 1;
 
-        this._sensors = new Sensors.Sensors(this._settings, this._sensorIcons, _);
-        this._values = new Values.Values(this._settings, this._sensorIcons);
+        // connected before the redraw handlers below, so they read fresh values
+        this._cachedSettings = new SettingsCache(this._settings);
+        this._sensors = new Sensors.Sensors(this._cachedSettings, this._sensorIcons, _);
+        this._values = new Values.Values(this._cachedSettings, this._sensorIcons);
         this._menuLayout = new St.BoxLayout({
             clip_to_allocation: true,
             x_align: Clutter.ActorAlign.START,
@@ -379,7 +382,7 @@ var VitalsMenuButton = GObject.registerClass({
             hotLabel.style = style;
 
             // support for fixed widths #55
-            if (this._settings.get_boolean('fixed-widths')) {
+            if (this._cachedSettings.get_boolean('fixed-widths')) {
                 // grab text box width and see if new text is wider than old text
                 let width2 = hotLabel.get_clutter_text().width;
                 if (width2 > this._widths[key]) {
@@ -598,6 +601,7 @@ var VitalsMenuButton = GObject.registerClass({
     destroy() {
         this._destroyTimer();
         this._sensors.destroy();
+        this._cachedSettings.destroy();
 
         this._settings.disconnectObject(this);
         this.menu.disconnectObject(this);
