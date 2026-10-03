@@ -8,7 +8,7 @@ The install directory **must match** `metadata.json` `uuid`. User install: `~/.l
 
 Required: `metadata.json`, `extension.js`. This repo also uses `prefs.js`, `stylesheet.css`, `schemas/`, `locale/`, helpers, and icons.
 
-Required metadata: `uuid`, `name`, `description`, `shell-version`, `url`. This project also sets `settings-schema`, `gettext-domain`, `version`, and `donations`.
+Required metadata: `uuid`, `name`, `description`, `shell-version`, `url`. This project also sets `settings-schema` and `gettext-domain`.
 
 ## ES modules
 

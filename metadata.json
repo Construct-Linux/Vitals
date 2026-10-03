@@ -6,10 +6,6 @@
   "shell-version": [
     "51"
   ],
-  "url": "https://github.com/corecoding/Vitals",
-  "uuid": "Vitals@CoreCoding.com",
-  "version": 84,
-  "donations": {
-      "paypal": "corecoding"
-  }
+  "url": "https://github.com/Construct-Linux/Vitals",
+  "uuid": "Vitals@CoreCoding.com"
 }
