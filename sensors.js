@@ -24,7 +24,6 @@
   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import * as FileModule from './helpers/file.js';
 
@@ -51,11 +50,7 @@ export const Sensors = GObject.registerClass({
         this._gpu_drm_vendors = [];
         this._gpu_drm_indices = [];
 
-        this._frameMonitorSignalId = 0;
-        this._frameMonitorLastTime = 0;
-        this._frameMonitorFrameCount = 0;
-        this._frameMonitorAccTime = 0;
-        this._frameMonitorCurrentHz = 0;
+        this._refreshRate = 0;
 
         if (hasGTop) {
             this.storage = new GTop.glibtop_fsusage();
@@ -491,55 +486,23 @@ export const Sensors = GObject.registerClass({
         }).catch(err => { });
     }
 
-    _initFrameMonitor() {
-        // Prefs has no gnome-shell `global`; skip refresh-rate sampling there.
-        if (typeof global === 'undefined' || !global.stage)
-            return;
+    // the panel, and with it this menu, sits on the primary monitor
+    _primaryRefreshRate() {
+        // prefs builds Sensors outside gnome-shell
+        if (typeof global === 'undefined')
+            return 0;
 
-        if (this._frameMonitorSignalId) return;
-        this._frameMonitorLastTime = 0;
-        this._frameMonitorFrameCount = 0;
-        this._frameMonitorAccTime = 0;
-        this._frameMonitorCurrentHz = 0;
-        this._frameMonitorSignalId = global.stage.connect('after-paint', () => {
-            this._onAfterPaint();
-        });
-    }
+        let monitor = global.display.get_primary_monitor();
+        if (monitor < 0)
+            return 0;
 
-    _destroyFrameMonitor() {
-        if (typeof global === 'undefined' || !global.stage) {
-            this._frameMonitorSignalId = 0;
-            this._frameMonitorLastTime = 0;
-            this._frameMonitorCurrentHz = 0;
-            return;
+        let primary = global.display.get_monitor_geometry(monitor);
+        for (let view of global.stage.peek_stage_views()) {
+            let layout = view.get_layout();
+            if (layout.x === primary.x && layout.y === primary.y)
+                return view.get_refresh_rate();
         }
-        if (this._frameMonitorSignalId) {
-            global.stage.disconnect(this._frameMonitorSignalId);
-            this._frameMonitorSignalId = 0;
-        }
-        this._frameMonitorLastTime = 0;
-        this._frameMonitorCurrentHz = 0;
-    }
-
-    _onAfterPaint() {
-        const now = GLib.get_monotonic_time();
-
-        if (this._frameMonitorLastTime === 0) {
-            this._frameMonitorLastTime = now;
-            return;
-        }
-
-        const delta = now - this._frameMonitorLastTime;
-        this._frameMonitorLastTime = now;
-
-        this._frameMonitorFrameCount++;
-        this._frameMonitorAccTime += delta;
-
-        if (this._frameMonitorAccTime >= 500000) {
-            this._frameMonitorCurrentHz = this._frameMonitorFrameCount / (this._frameMonitorAccTime / 1000000);
-            this._frameMonitorFrameCount = 0;
-            this._frameMonitorAccTime = 0;
-        }
+        return 0;
     }
 
     _returnGpuGroupHeader(callback, typeName, utilization) {
@@ -548,13 +511,14 @@ export const Sensors = GObject.registerClass({
             return;
         }
 
-        if (this._frameMonitorCurrentHz > 0)
-            this._returnGpuValue(callback, 'Graphics', this._frameMonitorCurrentHz, typeName + '-group', 'hertz');
+        if (this._refreshRate > 0)
+            this._returnGpuValue(callback, 'Graphics', this._refreshRate, typeName + '-group', 'hertz');
     }
 
     _queryGpu(callback) {
-        if (this._frameMonitorCurrentHz > 0)
-            this._returnValue(callback, 'Refresh Rate', this._frameMonitorCurrentHz, 'gpu#1', 'hertz');
+        this._refreshRate = this._primaryRefreshRate();
+        if (this._refreshRate > 0)
+            this._returnValue(callback, 'Refresh Rate', this._refreshRate, 'gpu#1', 'hertz');
 
         // sysfs DRM, if any card was discovered
         if (!this._gpu_drm_indices.length) {
@@ -686,7 +650,6 @@ export const Sensors = GObject.registerClass({
 
         this._discoverGpuDrm();
         this._discoverNetworkIfaces(callback);
-        this._initFrameMonitor();
     }
 
     _queryStaticInfo(callback) {
@@ -904,13 +867,9 @@ export const Sensors = GObject.registerClass({
         this._battery_time_left_history = [];
         this._battery_charge_status = '';
         this._gpuLabels = new Map();
-        this._frameMonitorLastTime = 0;
-        this._frameMonitorFrameCount = 0;
-        this._frameMonitorAccTime = 0;
     }
 
     destroy() {
         this._destroyed = true;
-        this._destroyFrameMonitor();
     }
 });
