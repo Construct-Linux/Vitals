@@ -396,12 +396,6 @@
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
   </object>
-  <object class="GtkAdjustment" id="network-public-ip-interval-adjustment">
-    <property name="lower">15</property>
-    <property name="upper">1440</property>
-    <property name="step-increment">1</property>
-    <property name="page-increment">15</property>
-  </object>
 
   <!-- General -->
   <object class="AdwPreferencesPage" id="general-page">
@@ -764,60 +758,6 @@
             <property name="activatable-widget">show-network</property>
             <child type="suffix">
               <object class="GtkSwitch" id="show-network">
-                <property name="valign">center</property>
-              </object>
-            </child>
-          </object>
-        </child>
-        <child>
-          <object class="AdwActionRow">
-            <property name="title" translatable="yes">Include public IP address</property>
-            <property name="activatable-widget">include-public-ip</property>
-            <child type="suffix">
-              <object class="GtkSwitch" id="include-public-ip">
-                <property name="valign">center</property>
-              </object>
-            </child>
-          </object>
-        </child>
-        <child>
-          <object class="AdwActionRow">
-            <property name="title" translatable="yes">Update in minutes</property>
-            <property name="activatable-widget">network-public-ip-interval</property>
-            <child type="suffix">
-              <object class="GtkSpinButton" id="network-public-ip-interval">
-                <property name="valign">center</property>
-                <property name="climb-rate">1</property>
-                <property name="digits">0</property>
-                <property name="numeric">True</property>
-                <property name="snap-to-ticks">True</property>
-                <property name="adjustment">network-public-ip-interval-adjustment</property>
-              </object>
-            </child>
-          </object>
-        </child>
-        <child>
-          <object class="AdwActionRow">
-            <property name="title" translatable="yes">Public IP provider</property>
-            <property name="activatable-widget">network-public-ip-provider</property>
-            <child type="suffix">
-              <object class="GtkComboBoxText" id="network-public-ip-provider">
-                <property name="valign">center</property>
-                <items>
-                  <item translatable="yes">Core Coding</item>
-                  <item translatable="yes">MyIP.com</item>
-                  <item translatable="yes">ipify</item>
-                </items>
-              </object>
-            </child>
-          </object>
-        </child>
-        <child>
-          <object class="AdwActionRow">
-            <property name="title" translatable="yes">Show country flag</property>
-            <property name="activatable-widget">network-public-ip-show-flag</property>
-            <child type="suffix">
-              <object class="GtkSwitch" id="network-public-ip-show-flag">
                 <property name="valign">center</property>
               </object>
             </child>

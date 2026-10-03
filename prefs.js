@@ -1,5 +1,4 @@
 import Adw from 'gi://Adw';
-import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import Gdk from 'gi://Gdk';
@@ -205,15 +204,9 @@ class Settings {
             for (let group of [state.addGroup, ...state.palettes.map(p => p.group)])
                 group.set_sensitive(enabled);
         }
-
-        if (gate.afterSync)
-            gate.afterSync(enabled);
     }
 
     _bind_sensor_page_gates() {
-        let providerWidget = this.builder.get_object('network-public-ip-provider');
-        let flagWidget = this.builder.get_object('network-public-ip-show-flag');
-
         this._sensorPageGates = {
             'temperature': { toggle: 'show-temperature', widgets: ['unit'] },
             'voltage': { toggle: 'show-voltage', widgets: [] },
@@ -221,22 +214,7 @@ class Settings {
             'memory': { toggle: 'show-memory', widgets: ['memory-measurement'] },
             'processor': { toggle: 'show-processor', widgets: ['include-static-info'] },
             'system': { toggle: 'show-system', widgets: ['monitor-cmd'] },
-            'network': {
-                toggle: 'show-network',
-                widgets: [
-                    'include-public-ip',
-                    'network-public-ip-interval',
-                    'network-public-ip-provider',
-                    'network-public-ip-show-flag',
-                    'network-speed-format',
-                    'network-speed-unit',
-                ],
-                afterSync: (networkEnabled) => {
-                    // Keep flag disabled for ipify even when network monitoring is on.
-                    this._action_row_for(flagWidget).set_sensitive(
-                        networkEnabled && providerWidget.get_active() !== 2);
-                },
-            },
+            'network': { toggle: 'show-network', widgets: ['network-speed-format', 'network-speed-unit'] },
             'storage': { toggle: 'show-storage', widgets: ['storage-path', 'storage-measurement'] },
             'battery': { toggle: 'show-battery', widgets: ['battery-slot'] },
             'gpu': { toggle: 'show-gpu', widgets: ['include-static-gpu-info'] },
@@ -305,8 +283,7 @@ class Settings {
         let sensors = [ 'show-temperature', 'show-voltage', 'show-fan',
                         'show-memory', 'show-processor', 'show-system',
                         'show-network', 'show-storage', 'use-higher-precision',
-                        'alphabetize', 'hide-zeros', 'include-public-ip',
-                        'network-public-ip-show-flag', 'show-battery', 'fixed-widths',
+                        'alphabetize', 'hide-zeros', 'show-battery', 'fixed-widths',
                         'hide-icons', 'menu-centered', 'include-static-info',
                         'show-gpu', 'include-static-gpu-info' ];
 
@@ -331,8 +308,7 @@ class Settings {
         // process individual drop down sensor preferences
         sensors = [
             'position-in-panel', 'unit', 'network-speed-format', 'network-speed-unit',
-            'memory-measurement', 'storage-measurement', 'battery-slot', 'icon-style',
-            'network-public-ip-provider'
+            'memory-measurement', 'storage-measurement', 'battery-slot', 'icon-style'
         ];
         for (let key in sensors) {
             let sensor = sensors[key];
@@ -344,19 +320,11 @@ class Settings {
             });
         }
 
-        let providerWidget = this.builder.get_object('network-public-ip-provider');
-        providerWidget.connect('changed', () => {
-            this._sync_sensor_page_sensitivity('network');
-        });
-
         let updateTime = this.builder.get_object('update-time');
         updateTime.set_value(this._settings.get_int('update-time'));
         updateTime.connect('value-changed', (widget) => {
             this._settings.set_int('update-time', Math.round(widget.get_value()));
         });
-
-        this._settings.bind('network-public-ip-interval', this.builder.get_object('network-public-ip-interval'),
-            'value', Gio.SettingsBindFlags.DEFAULT);
 
         // process individual text entry sensor preferences
         sensors = [ 'storage-path', 'monitor-cmd' ];

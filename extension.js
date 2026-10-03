@@ -79,8 +79,7 @@ var VitalsMenuButton = GObject.registerClass({
 
         let settings = [ 'use-higher-precision', 'alphabetize', 'hide-zeros',
                          'fixed-widths', 'hide-icons', 'unit', 'icon-style',
-                         'memory-measurement', 'include-public-ip', 'network-public-ip-interval',
-                         'network-public-ip-show-flag', 'network-public-ip-provider', 'network-speed-format', 'network-speed-unit', 'storage-measurement',
+                         'memory-measurement', 'network-speed-format', 'network-speed-unit', 'storage-measurement',
                          'include-static-info', 'include-static-gpu-info' ];
 
         for (let setting of settings)
@@ -496,16 +495,8 @@ var VitalsMenuButton = GObject.registerClass({
         // If the sensor is a numbered gpu, use the gpu icon. Otherwise use whatever icon associated with the sensor name.
         if (sensor.startsWith('gpu')) sensorKey = 'gpu';
 
-        // allows country flags to show
-        const icons = this._sensorIcons[sensorKey];
-        if (sensorKey === 'network' && icon.startsWith('icon-') && !(icons && icons[icon])) {
-            let cc = icon.slice('icon-'.length);
-            if (/^[a-z]{2}$/.test(cc))
-                return this._extensionObject.path + '/icons/flags/1x1/' + cc + '.svg';
-        }
-
         const iconPathPrefixIndex = this._settings.get_int('icon-style');
-        return this._extensionObject.path + this._sensorsIconPathPrefix[iconPathPrefixIndex] + icons[icon];
+        return this._extensionObject.path + this._sensorsIconPathPrefix[iconPathPrefixIndex] + this._sensorIcons[sensorKey][icon];
     }
 
     _ucFirst(string) {
@@ -567,7 +558,6 @@ var VitalsMenuButton = GObject.registerClass({
 
         this._sensors.query((label, value, type, format) => {
             let typeKey = type.replace('-group', '');
-            if (/^network-(?!rx$|tx$)/.test(typeKey)) typeKey = 'network';
             let key = '_' + typeKey + '_' + label.replaceAll(' ', '_').toLowerCase() + '_';
 
             // issue #557 - interface is gone, drop it rather than show its last reading
@@ -617,21 +607,6 @@ var VitalsMenuButton = GObject.registerClass({
 
             let items = this._values.returnIfDifferent(dwell, label, value, type, format, key);
             for (let item of items) {
-                if (item.type.startsWith('network-') && item.type.length == 10 && item.type != 'network-rx' && item.type != 'network-tx') {
-                    // Geo / flags: stable key (no country in key); type stays network-<cc> for icon-us etc.
-                    const stem = item.type.slice('network-'.length);
-                    let flagGIcon = Gio.icon_new_for_string(this._sensorIconPath('network', 'icon-' + stem));
-                    if (this._hotItems[item.key] && !this._settings.get_boolean('hide-icons')) {
-                        // change icon in menu bar
-                        let icon = this._hotItems[item.key].get_first_child();
-                        if (icon instanceof St.Icon)
-                        icon.gicon = flagGIcon;
-                    }
-                    // change icon in dropdown
-                    let menuRow = this._sensorMenuItems[item.key];
-                    if (menuRow) menuRow.gicon = flagGIcon;
-                }
-
                 this._updateDisplay(_(item.label), item.value, item.type, item.key, item.style);
             }
         }, dwell, wantedKeys);

@@ -248,33 +248,30 @@ export const Values = GObject.registerClass({
     returnIfDifferent(dwell, label, value, type, format, key) {
         let output = [];
 
-        // Use one history bucket for network-<cc> types (geo IP), except for rx/tx.
-        let historyType = (/^network-(?!rx$|tx$)[a-z]{2}(?:-group)?$/.test(type)) ? 'network' : type;
-
         // make sure the keys exist
-        if (!(historyType in this._history)) this._history[historyType] = {};
+        if (!(type in this._history)) this._history[type] = {};
 
         // no sense in continuing when the raw value has not changed
-        if (historyType != 'network-rx' && historyType != 'network-tx' &&
-            key in this._history[historyType] && this._history[historyType][key][1] == value)
+        if (type != 'network-rx' && type != 'network-tx' &&
+            key in this._history[type] && this._history[type][key][1] == value)
                 return output;
 
         // is the value different from last time?
         let legible = this._legible(value, format, type, key);
 
         // don't return early when dealing with network traffic
-        if (historyType != 'network-rx' && historyType != 'network-tx') {
+        if (type != 'network-rx' && type != 'network-tx') {
             // only update when we are coming through for the first time, or if a value has changed
-            if (key in this._history[historyType] && this._history[historyType][key][0] == legible.text)
+            if (key in this._history[type] && this._history[type][key][0] == legible.text)
                 return output;
 
-            // add label as it was sent from sensors class; type stays e.g. network-us for display/icons
+            // add label as it was sent from sensors class
             output.push({ label, value: legible.text, style: legible.style, type, key });
         }
 
         // save previous values to update screen on changes only
-        let previousValue = this._history[historyType][key];
-        this._history[historyType][key] = [legible.text, value];
+        let previousValue = this._history[type][key];
+        this._history[type][key] = [legible.text, value];
 
         // process average, min and max values
         if (type == 'temperature' || type == 'voltage' || type == 'fan') {

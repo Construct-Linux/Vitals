@@ -61,8 +61,7 @@ GNOME theme: battery and storage from the
 memory, network, system and voltage from the
 [Icon Development Kit](https://gitlab.gnome.org/Teams/Design/icon-development-kit);
 fan from Freon, modified; temperature and cpu by
-[daudix](https://github.com/daudix). Country flags are
-[flag-icons](https://github.com/lipis/flag-icons) (`icons/flags/flag-icons.LICENSE`).
+[daudix](https://github.com/daudix).
 
 Sensor data comes from hwmon and GTop; the Vitals authors are not
 responsible for improperly represented data. No warranty expressed or

@@ -3,10 +3,7 @@ import GLib from 'gi://GLib'
 import { convertUint8ArrayToString } from './bytes.js';
 
 export function File(path) {
-    if (path.indexOf('https://') == -1)
-        this.file = Gio.File.new_for_path(path);
-    else
-        this.file = Gio.File.new_for_uri(path);
+    this.file = Gio.File.new_for_path(path);
 }
 
 File.prototype.read = function(delimiter = '', strip_header = false) {
@@ -14,7 +11,7 @@ File.prototype.read = function(delimiter = '', strip_header = false) {
         try {
             this.file.load_contents_async(null, function(file, res) {
                 try {
-                    // grab contents of file or website
+                    // grab contents of file
                     let contents = file.load_contents_finish(res)[1];
 
                     // convert contents to string

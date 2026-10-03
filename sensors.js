@@ -53,8 +53,6 @@ export const Sensors = GObject.registerClass({
         this._settingChangedSignals = [];
         this._addSettingChangedSignal('show-gpu', this._reconfigureNvidiaSmiProcess.bind(this));
         this._addSettingChangedSignal('update-time', this._reconfigureNvidiaSmiProcess.bind(this));
-        this._addSettingChangedSignal('network-public-ip-interval', () => {this._next_public_ip_check = 0;});
-        this._addSettingChangedSignal('network-public-ip-provider', () => {this._next_public_ip_check = 0;});
         //this._addSettingChangedSignal('include-static-gpu-info', this._reconfigureNvidiaSmiProcess.bind(this));
 
         this._gpu_drm_vendors = null;
@@ -84,36 +82,6 @@ export const Sensors = GObject.registerClass({
         this._settingChangedSignals.push(this._settings.connect('changed::' + key, callback));
     }
 
-    _refreshIPAddress(callback) {
-        const provider = this._settings.get_int('network-public-ip-provider');
-        let url;
-        if (provider === 1)
-            url = 'https://api.myip.com';
-        else if (provider === 2)
-            url = 'https://api.ipify.org?format=json';
-        else
-            url = 'https://ipv4.corecoding.com';
-
-        new FileModule.File(url).read().then(contents => {
-            let obj = JSON.parse(contents);
-            let cc = '';
-            let ip = '';
-            if (provider === 1) {
-                cc = (obj && typeof obj['cc'] === 'string') ? obj['cc'].trim().toLowerCase() : '';
-                if (cc === 'xx') cc = ''; // MyIP.com uses XX when country is unknown; not a real flag
-                ip = (obj && typeof obj['ip'] === 'string') ? obj['ip'].trim() : '';
-            } else if (provider === 2) {
-                ip = (obj && typeof obj['ip'] === 'string') ? obj['ip'].trim() : '';
-            } else {
-                cc = (obj && typeof obj['countryCode'] === 'string') ? obj['countryCode'].trim().toLowerCase() : '';
-                ip = (obj && typeof obj['IPv4'] === 'string') ? obj['IPv4'].trim() : '';
-            }
-            const showFlag = this._settings.get_boolean('network-public-ip-show-flag');
-            let typeOut = (showFlag && /^[a-z]{2}$/.test(cc)) ? ('network-' + cc) : 'network';
-            this._returnValue(callback, 'Public IP', ip, typeOut, 'string');
-        }).catch(err => { });
-    }
-
     _findStorageDevice() {
         new FileModule.File('/proc/mounts').read("\n").then(lines => {
             for (let line of lines) {
@@ -127,11 +95,6 @@ export const Sensors = GObject.registerClass({
     }
 
     query(callback, dwell, wantedKeys) {
-        // menu open (wantedKeys null) or Public IP pinned to the panel
-        if (this._settings.get_boolean('include-public-ip') &&
-            (!wantedKeys || wantedKeys.has('_network_public_ip_')))
-            this._queryPublicIp(callback);
-
         if (!this._hardware_detected) {
             // we could set _hardware_detected in discoverHardwareMonitors, but by
             // doing it here, we guarantee avoidance of race conditions
@@ -317,17 +280,6 @@ export const Sensors = GObject.registerClass({
             if (cores > 0)
                 this._returnValue(callback, 'Process Time', upArray[0] - upArray[1] / cores, 'processor', 'uptime');
         }).catch(err => { });
-    }
-
-    _queryPublicIp(callback) {
-        // wall-clock deadline so skipped closed-menu polls still honor the interval
-        let now = GLib.get_real_time() / 1000000;
-        if (this._next_public_ip_check <= now) {
-            // prefs UI minimum is 15; clamp in case an older/dconf value is lower
-            let minutes = Math.max(15, this._settings.get_int('network-public-ip-interval'));
-            this._next_public_ip_check = now + minutes * 60;
-            this._refreshIPAddress(callback);
-        }
     }
 
     _queryNetwork(callback, dwell) {
@@ -1186,7 +1138,6 @@ export const Sensors = GObject.registerClass({
 
     // rediscover=false keeps network/TVF/GPU discovery across cosmetic menu redraws
     resetHistory(rediscover = true) {
-        this._next_public_ip_check = 0;
         this._static_info_refresh = false;
         if (rediscover) {
             this._hardware_detected = false;
