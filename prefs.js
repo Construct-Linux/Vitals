@@ -87,10 +87,10 @@ class Settings {
         };
 
         // First pass starts hwmon discovery; second pass fills processor deltas.
-        this._sensors.query(collect, 1);
+        this._sensors.query(collect);
         GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
             if (this._sensors)
-                this._sensors.query(collect, 1);
+                this._sensors.query(collect);
             return GLib.SOURCE_REMOVE;
         });
         this._sensorDiscoveryTimeoutId = GLib.timeout_add_seconds(

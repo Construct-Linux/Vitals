@@ -40,7 +40,6 @@ var VitalsMenuButton = GObject.registerClass({
         this._groups = {};
         this._widths = {};
         this._numGpus = 1;
-        this._last_query = new Date().getTime();
 
         this._sensors = new Sensors.Sensors(this._settings, this._sensorIcons, _);
         this._values = new Values.Values(this._settings, this._sensorIcons);
@@ -546,11 +545,6 @@ var VitalsMenuButton = GObject.registerClass({
     }
 
     _querySensors() {
-        // figure out last run time
-        let now = new Date().getTime();
-        let dwell = (now - this._last_query) / 1000;
-        this._last_query = now;
-
         // panel labels only when closed — `_default_icon_` is in _hotItems, not _hotLabels
         // empty set still queries so dwell-based sensors keep warm baselines
         let wantedKeys = this.menu.isOpen ? null : new Set(Object.keys(this._hotLabels));
@@ -594,11 +588,11 @@ var VitalsMenuButton = GObject.registerClass({
                 }
             }
 
-            let items = this._values.returnIfDifferent(dwell, label, value, type, format, key);
+            let items = this._values.returnIfDifferent(label, value, type, format, key);
             for (let item of items) {
                 this._updateDisplay(_(item.label), item.value, item.type, item.key, item.style);
             }
-        }, dwell, wantedKeys);
+        }, wantedKeys);
     }
 
     destroy() {

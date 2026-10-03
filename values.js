@@ -24,6 +24,7 @@
   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 
 import {sensorCatalog, colorsKeyForSensor} from './helpers/catalog.js';
@@ -236,7 +237,7 @@ export const Values = GObject.registerClass({
         return getUsageColor(numeric, this._settings.get_strv(colorsKey), sensorKey);
     }
 
-    returnIfDifferent(dwell, label, value, type, format, key) {
+    returnIfDifferent(label, value, type, format, key) {
         let output = [];
 
         // make sure the keys exist
@@ -260,9 +261,11 @@ export const Values = GObject.registerClass({
             output.push({ label, value: legible.text, style: legible.style, type, key });
         }
 
-        // save previous values to update screen on changes only
+        // save previous values to update screen on changes only; the time
+        // turns network byte counters into a rate
         let previousValue = this._history[type][key];
-        this._history[type][key] = [legible.text, value];
+        let now = GLib.get_monotonic_time();
+        this._history[type][key] = [legible.text, value, now];
 
         // process average, min and max values
         if (type == 'temperature' || type == 'voltage' || type == 'fan') {
@@ -354,7 +357,8 @@ export const Values = GObject.registerClass({
             // calculate speed for this interface. No previous sample, a zero
             // baseline, or a counter reset (VPN/tunnel recycle) is not a rate.
             let prevBytes = previousValue ? parseFloat(previousValue[1]) : 0;
-            let speed = (prevBytes && value >= prevBytes) ? (value - prevBytes) / dwell : 0;
+            let dwell = previousValue ? (now - previousValue[2]) / 1000000 : 0;
+            let speed = (prevBytes && value >= prevBytes && dwell > 0) ? (value - prevBytes) / dwell : 0;
             let speedFormatted = this._legible(speed, 'speed', type, key);
 
             output.push({

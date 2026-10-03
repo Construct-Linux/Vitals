@@ -24,6 +24,7 @@
   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import * as FileModule from './helpers/file.js';
 
@@ -45,21 +46,21 @@ export const Sensors = GObject.registerClass({
 
         this.resetHistory();
 
-        this._last_processor = { 'core': {}, 'speed': [] };
+        this._last_processor = { 'core': {}, 'speed': [], 'time': 0 };
 
         this._gpu_drm_vendors = [];
         this._gpu_drm_indices = [];
 
         this._refreshRate = 0;
 
-        if (hasGTop) {
-            this.storage = new GTop.glibtop_fsusage();
-            this._storageDevice = '';
-            this._findStorageDevice();
+        this._storageDevice = '';
+        this._findStorageDevice();
+        this._lastRead = 0;
+        this._lastWrite = 0;
+        this._lastDiskTime = 0;
 
-            this._lastRead = 0;
-            this._lastWrite = 0;
-        }
+        if (hasGTop)
+            this.storage = new GTop.glibtop_fsusage();
     }
 
     _findStorageDevice() {
@@ -74,7 +75,7 @@ export const Sensors = GObject.registerClass({
         }).catch(err => { });
     }
 
-    query(callback, dwell, wantedKeys) {
+    query(callback, wantedKeys) {
         if (!this._hardware_detected) {
             // we could set _hardware_detected in discoverHardwareMonitors, but by
             // doing it here, we guarantee avoidance of race conditions
@@ -92,7 +93,7 @@ export const Sensors = GObject.registerClass({
             if (!this._settings.get_boolean('show-' + sensor)) {
                 if (sensor === 'processor' && wantedKeys &&
                     wantedKeys.has('_processor_process_time_'))
-                    this._queryProcessor(callback, dwell);
+                    this._queryProcessor(callback);
                 continue;
             }
 
@@ -101,7 +102,7 @@ export const Sensors = GObject.registerClass({
                 this._queryTempVoltFan(callback, sensor, wantedKeys);
             } else {
                 let method = '_query' + sensor[0].toUpperCase() + sensor.slice(1);
-                this[method](callback, dwell);
+                this[method](callback);
             }
         }
     }
@@ -153,9 +154,14 @@ export const Sensors = GObject.registerClass({
         }).catch(err => { });
     }
 
-    _queryProcessor(callback, dwell) {
+    _queryProcessor(callback) {
         // check processor usage
         new FileModule.File('/proc/stat').read("\n").then(lines => {
+            // rates divide by the time since this file was last read, not since
+            // the last poll: a poll can skip the processor group
+            let now = GLib.get_monotonic_time();
+            let dwell = (now - this._last_processor['time']) / 1000000;
+            this._last_processor['time'] = now;
             let statistics = {};
 
             for (let line of lines) {
@@ -177,7 +183,7 @@ export const Sensors = GObject.registerClass({
                 let total = statistics[cpu];
 
                 // make sure we have data to report
-                if (this._last_processor['core'][cpu] > 0) {
+                if (this._last_processor['core'][cpu] > 0 && dwell > 0) {
                     let delta = (total - this._last_processor['core'][cpu]) / dwell;
 
                     // /proc/stat provides overall usage for us under the 'cpu' heading
@@ -262,7 +268,7 @@ export const Sensors = GObject.registerClass({
         }).catch(err => { });
     }
 
-    _queryNetwork(callback, dwell) {
+    _queryNetwork(callback) {
         for (let sensor of this._networkIfaces) {
             new FileModule.File(sensor.path).read().then(value => {
                 this._returnValue(callback, sensor.name, value, sensor.type, 'storage');
@@ -297,9 +303,12 @@ export const Sensors = GObject.registerClass({
         }).catch(err => { });
     }
 
-    _queryStorage(callback, dwell) {
+    _queryStorage(callback) {
         // check disk performance stats
         new FileModule.File('/proc/diskstats').read("\n").then(lines => {
+            let now = GLib.get_monotonic_time();
+            let dwell = (now - this._lastDiskTime) / 1000000;
+            this._lastDiskTime = now;
             for (let line of lines) {
                 let loadArray = line.trim().split(/\s+/);
                 if ('/dev/' + loadArray[2] == this._storageDevice) {
@@ -308,9 +317,9 @@ export const Sensors = GObject.registerClass({
                     this._returnValue(callback, 'Read total', read, 'storage', 'storage');
                     this._returnValue(callback, 'Write total', write, 'storage', 'storage');
                     // skip rates until counters are seeded (same pattern as processor cores)
-                    if (this._lastRead > 0)
+                    if (this._lastRead > 0 && dwell > 0)
                         this._returnValue(callback, 'Read rate', (read - this._lastRead) / dwell, 'storage', 'storage');
-                    if (this._lastWrite > 0)
+                    if (this._lastWrite > 0 && dwell > 0)
                         this._returnValue(callback, 'Write rate', (write - this._lastWrite) / dwell, 'storage', 'storage');
                     this._lastRead = read;
                     this._lastWrite = write;
