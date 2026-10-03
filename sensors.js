@@ -97,6 +97,10 @@ export const Sensors = GObject.registerClass({
                 continue;
             }
 
+            // menu closed: read only the groups something in the panel shows
+            if (wantedKeys && !this._groupWanted(sensor, wantedKeys))
+                continue;
+
             if (sensor == 'temperature' || sensor == 'voltage' || sensor == 'fan') {
                 // wantedKeys filters individual hwmon files when the menu is closed
                 this._queryTempVoltFan(callback, sensor, wantedKeys);
@@ -105,6 +109,20 @@ export const Sensors = GObject.registerClass({
                 this[method](callback);
             }
         }
+    }
+
+    _groupWanted(sensor, wantedKeys) {
+        // Process Time is read with the system stats and divided by the core count
+        if ((sensor === 'system' || sensor === 'processor') &&
+            wantedKeys.has('_processor_process_time_'))
+            return true;
+
+        // keys are _<type>_<label>_ or __<type>_<stat>__, and gpu types are gpu#<n>
+        for (let key of wantedKeys) {
+            if (key.replace(/^_+/, '').startsWith(sensor))
+                return true;
+        }
+        return false;
     }
 
     _queryTempVoltFan(callback, type, wantedKeys) {

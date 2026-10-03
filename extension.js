@@ -545,8 +545,8 @@ var VitalsMenuButton = GObject.registerClass({
     }
 
     _querySensors() {
-        // panel labels only when closed — `_default_icon_` is in _hotItems, not _hotLabels
-        // empty set still queries so dwell-based sensors keep warm baselines
+        // panel labels only when closed — `_default_icon_` is in _hotItems, not _hotLabels;
+        // with nothing pinned only discovery runs, and rates restart from their own samples
         let wantedKeys = this.menu.isOpen ? null : new Set(Object.keys(this._hotLabels));
 
         this._sensors.query((label, value, type, format) => {
