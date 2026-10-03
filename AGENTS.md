@@ -53,7 +53,7 @@ Local clone: compile schemas after schema edits (`glib-compile-schemas --strict 
 
 ## Code in this repo
 
-- Do not poll or format on the main thread; keep `Gio.File.load_contents_async` / subprocess patterns.
+- Read sysfs and `/proc/net` with `Gio.File.load_contents_async` through `helpers/file.js`; it reads other procfs files directly, since they never wait on a disk.
 - Gettext: `_()` from the Extension/prefs import, domain `vitals`.
 - GObject subclasses: `GObject.registerClass` + unique `GTypeName`.
 - Icons: `St.Icon` / `Gtk.Image`, not emoji.
