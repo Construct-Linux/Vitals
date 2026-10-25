@@ -80,7 +80,7 @@ var VitalsMenuButton = GObject.registerClass({
         let settings = [ 'use-higher-precision', 'alphabetize', 'hide-zeros',
                          'fixed-widths', 'hide-icons', 'unit', 'icon-style',
                          'memory-measurement', 'network-speed-format', 'network-speed-unit', 'storage-measurement',
-                         'include-static-info', 'include-static-gpu-info' ];
+                         'include-static-info', 'include-processor-cores', 'include-static-gpu-info' ];
 
         for (let setting of settings)
             this._settings.connectObject('changed::' + setting, this._redrawMenu.bind(this), this);
@@ -203,7 +203,7 @@ var VitalsMenuButton = GObject.registerClass({
 
     _createRoundButton(iconName, accessibleName) {
         let button = new St.Button({
-            style_class: 'message-list-clear-button button vitals-button-action',
+            style_class: 'button vitals-button-action',
             accessible_name: accessibleName,
         });
 
@@ -427,7 +427,7 @@ var VitalsMenuButton = GObject.registerClass({
         let split = sensor.type.split('-');
         let type = split[0];
         let icon = (split.length == 2)?'icon-' + split[1]:'icon';
-        let gicon = Gio.icon_new_for_string(this._sensorIconPath(type, icon));
+        let gicon = Gio.icon_new_for_string(this._sensorIconPath(type, icon, key));
 
         let item = new MenuItem.MenuItem(gicon, key, sensor.label, sensor.value, this._hotLabels[key]);
         item.connect('toggle', (self) => {
@@ -480,9 +480,13 @@ var VitalsMenuButton = GObject.registerClass({
     _defaultIcon(key) {
         let split = key.replaceAll('_', ' ').trim().split(' ')[0].split('-');
         let type = split[0];
+        let panelType = type.startsWith('gpu') ? 'gpu' : type;
+        if (type === 'network' && (split[1] === 'rx' || split[1] === 'tx'))
+            panelType += '-' + split[1];
+        let iconStyle = this._settings.get_int('icon-style') === 1 ? 'gnome' : 'original';
 
         let icon = new St.Icon({
-          style_class: 'system-status-icon vitals-panel-icon-' + type,
+          style_class: `system-status-icon vitals-panel-icon vitals-panel-icon-${panelType} vitals-panel-icon-${iconStyle}`,
             reactive: true
         });
 
@@ -492,20 +496,24 @@ var VitalsMenuButton = GObject.registerClass({
             icon.gicon = Gio.icon_new_for_string(this._sensorIconPath('system'));
         } else { // support for hide icons #80
             let iconObj = (split.length == 2)?'icon-' + split[1]:'icon';
-            icon.gicon = Gio.icon_new_for_string(this._sensorIconPath(type, iconObj));
+            icon.gicon = Gio.icon_new_for_string(this._sensorIconPath(type, iconObj, key));
         }
 
         return icon;
     }
 
-    _sensorIconPath(sensor, icon = 'icon') {
+    _sensorIconPath(sensor, icon = 'icon', key = '') {
         let sensorKey = sensor;
 
         // If the sensor is a numbered gpu, use the gpu icon. Otherwise use whatever icon associated with the sensor name.
         if (sensor.startsWith('gpu')) sensorKey = 'gpu';
 
         const iconPathPrefixIndex = this._settings.get_int('icon-style');
-        return this._extensionObject.path + this._sensorsIconPathPrefix[iconPathPrefixIndex] + this._sensorIcons[sensorKey][icon];
+        const icons = this._sensorIcons[sensorKey];
+        // the GNOME set draws swap apart from memory, as System Monitor does
+        if (sensorKey === 'memory' && iconPathPrefixIndex === 1 && key.startsWith('_memory_swap_'))
+            icon = 'icon-swap';
+        return this._extensionObject.path + this._sensorsIconPathPrefix[iconPathPrefixIndex] + icons[icon];
     }
 
     _ucFirst(string) {
@@ -561,6 +569,9 @@ var VitalsMenuButton = GObject.registerClass({
         let wantedKeys = this.menu.isOpen ? null : new Set(Object.keys(this._hotLabels));
 
         this._sensors.query((label, value, type, format) => {
+            // async reads can resolve after disable(); the panel widgets are gone by then
+            if (this._destroyed) return;
+
             let typeKey = type.replace('-group', '');
             let key = '_' + typeKey + '_' + label.replaceAll(' ', '_').toLowerCase() + '_';
 
@@ -572,6 +583,10 @@ var VitalsMenuButton = GObject.registerClass({
                     delete this._sensorMenuItems[key];
                 }
                 this._removeHotItem(key);
+
+                // an empty panel box leaves no way to open the menu
+                if (Object.keys(this._hotItems).length == 0)
+                    this._createHotItem('_default_icon_');
                 return;
             }
 
@@ -607,6 +622,7 @@ var VitalsMenuButton = GObject.registerClass({
     }
 
     destroy() {
+        this._destroyed = true;
         this._destroyTimer();
         this._sensors.destroy();
         this._cachedSettings.destroy();

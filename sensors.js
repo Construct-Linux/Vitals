@@ -211,7 +211,7 @@ export const Sensors = GObject.registerClass({
                         delta = delta / cores;
                         this._returnValue(callback, 'processor', delta / 100, 'processor-group', 'percent');
                         this._returnValue(callback, 'Usage', delta / 100, 'processor', 'percent');
-                    } else {
+                    } else if (this._settings.get_boolean('include-processor-cores')) {
                         this._returnValue(callback, this._gettext('Core %d').format(cpu.substr(3)), delta / 100, 'processor', 'percent');
                     }
                 }
@@ -698,6 +698,9 @@ export const Sensors = GObject.registerClass({
         let previous = this._networkIfaces;
         // a rediscovery still in flight keeps filling its own, discarded list
         let ifaces = this._networkIfaces = [];
+        // an interface the poll already read this round is not read again here: a second
+        // sample inside one poll shows as ~0 speed
+        let known = new Set(previous.map(sensor => sensor.name));
         this._hasWireless = false;
         let netbase = '/sys/class/net/';
         let directions = ['tx', 'rx'];
@@ -722,6 +725,9 @@ export const Sensors = GObject.registerClass({
                         let type = 'network' + ((iface == 'lo') ? '' : '-' + direction);
                         let path = netbase + iface + '/statistics/' + direction + '_bytes';
                         ifaces.push({name, type, path});
+
+                        if (known.has(name))
+                            continue;
 
                         // update screen on initial build to prevent delay on update
                         new FileModule.File(path).read().then(value => {
@@ -781,7 +787,8 @@ export const Sensors = GObject.registerClass({
                                 trisensors[key2] = {
                                     'type': sensor_types[sensor_type],
                                   'format': sensor_type,
-                                   'label': path + '/name'
+                                   // drivetemp: prefer the drive model when sysfs exposes it
+                                   'label': path + (name == 'drivetemp' ? '/device/model' : '/name')
                                 };
                             }
 
@@ -800,9 +807,14 @@ export const Sensors = GObject.registerClass({
 
                     if (value > 0 || !this._settings.get_boolean('hide-zeros') || obj['type'] == 'fan') {
                         new FileModule.File(obj['label']).read().then(label => {
+                            // some USB bridges expose an empty drivetemp model
+                            if (!label && name == 'drivetemp')
+                                throw new Error('empty drivetemp model');
                             this._addTempVoltFan(callback, obj, name, label, extra, value);
                         }).catch(err => {
-                            let tmpFile = obj['label'].substr(0, obj['label'].lastIndexOf('/')) + '/name';
+                            // device/model is not always present; keep the hwmon name as fallback
+                            let tmpFile = name == 'drivetemp' ? path + '/name'
+                                : obj['label'].substr(0, obj['label'].lastIndexOf('/')) + '/name';
                             new FileModule.File(tmpFile).read().then(label => {
                                 this._addTempVoltFan(callback, obj, name, label, extra, value);
                             }).catch(err => { });
@@ -814,8 +826,8 @@ export const Sensors = GObject.registerClass({
     }
 
     _addTempVoltFan(callback, obj, name, label, extra, value) {
-        // prepend module that provided sensor data
-        if (name != label) label = name + ' ' + label;
+        // prepend module that provided sensor data, except drivetemp (label is already the model)
+        if (name != label && name != 'drivetemp') label = name + ' ' + label;
 
         label = label + extra;
 
